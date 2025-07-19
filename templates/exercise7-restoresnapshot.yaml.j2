@@ -1,0 +1,11 @@
+ apiVersion: snapshot.kubevirt.io/v1alpha1
+ kind: VirtualMachineRestore
+ metadata:
+   name: restore-exercise7-snapshot
+   namespace: "namespace-{{ user }}"
+ spec:
+   target:
+     apiGroup: kubevirt.io
+     kind: VirtualMachine
+     name: exercise7
+   virtualMachineSnapshotName: exercise7-snapshot

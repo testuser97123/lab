@@ -1,0 +1,24 @@
+- name: Grading the exercise5
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Testing fdisk on exercise5 virtual machine
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise5 --command 'sudo fdisk -l /dev/sda'
+      ignore_errors: true
+      no_log: false
+      register: testssh
+
+    - name: Check if disk is on virtual machine OS
+      ansible.builtin.fail:
+        msg: "oooo no, disk is not working on exercise5 virtual machine"
+      when: testssh.rc != 0
+
+    - name: Check the exercise5 status
+      ansible.builtin.debug:
+        msg: "oohhh yes, now the user can see the extra disk on virtual machine!"
+      when: testssh.rc == 0

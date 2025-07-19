@@ -1,0 +1,35 @@
+- name: Grading the exercise12
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Getting the exercise10-b IP address until it's not empty
+      ansible.builtin.command:
+        cmd: "oc get vmi exercise12-b -n namespace-{{ user }} -o jsonpath='{.status.interfaces[1].ipAddress}'"
+      register: exercise11bip
+      until: exercise11bip.stdout != ""
+      retries: 5
+      delay: 10
+
+    - name: Check if exercise12-b app is reachable
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise12-a --command 'curl --connect-timeout 2 http://{{ exercise11bip.stdout }}'
+      ignore_errors: true
+      no_log: false
+      register: testcurl
+      until: testcurl.rc == 0
+      retries: 5
+      delay: 10
+
+    - name: Check the exercise12-b status
+      ansible.builtin.fail:
+        msg: "Ooops, The exercise12-b virtual machine app is not reachable."
+      when: testcurl.rc != 0
+
+    - name: Check the exercise12-b status
+      ansible.builtin.debug:
+        msg: "Hey Hey Hey, it's working!!"
+      when: testcurl.rc == 0

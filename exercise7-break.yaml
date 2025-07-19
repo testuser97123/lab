@@ -1,0 +1,51 @@
+---
+- name: Preparing the exercise7
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Creating the exercise7 virtual machine
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise7-vm.yaml.j2"
+      register: breakvm
+      until: breakvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: breakvm is failed or breakvm.failed
+
+    - name: Wait for VM to be running
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        namespace: "namespace-{{ user }}"
+        name: "exercise7"
+      register: exercise7info
+      until: "exercise7info.resources | length > 0 and exercise7info.resources[0].status.phase == 'Running'"
+      retries: 60
+      delay: 10
+      failed_when: exercise7info.resources | length == 0
+
+    - name: Create the VM snapshot
+      kubernetes.core.k8s:
+        kind: VirtualMachineSnapshot
+        namespace: 'namespace-{{ user }}'
+        definition:
+          apiVersion: snapshot.kubevirt.io/v1alpha1
+          kind: VirtualMachineSnapshot
+          metadata:
+            name: exercise7-snapshot
+          spec:
+            source:
+              apiGroup: kubevirt.io
+              kind: VirtualMachine
+              name: exercise7
+
+    - name: Create exercise7-restoresnapshot.yaml script
+      ansible.builtin.template:
+        src: 'exercise7-restoresnapshot.yaml.j2'
+        dest: '/home/{{ user }}/exercise7-restoresnapshot.yaml'
+        mode: '0644'

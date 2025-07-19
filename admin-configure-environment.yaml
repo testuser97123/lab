@@ -1,0 +1,689 @@
+- name: Admin configure users prerequesites
+  hosts: localhost
+
+  tasks:
+    # - name: Check if admin is authenticated with OpenShift 4
+    #   ansible.builtin.command: oc whoami
+    #   register: oc_whoami_result
+    #   changed_when: false
+    #   ignore_errors: true
+    #   no_log: false
+
+    # - name: Fail if not connected on cluster
+    #   ansible.builtin.fail:
+    #     msg: "You are not logged into the cluster. Please use 'oc login' and re-run this playbook"
+    #   when: oc_whoami_result.rc != 0
+
+    # - name: Fail if not logged in as admin
+    #   ansible.builtin.fail:
+    #     msg: "You are logged in but you are not 'admin' user. Please log in with user 'admin'"
+    #   when: oc_whoami_result.stdout != "admin" or oc_whoami_result.stdout != "system:admin"
+
+    - name: Ensure openshift-nmstate exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: openshift-nmstate
+      register: namespacenmstate
+      retries: 60
+      delay: 10
+      when:
+        - nmstate_cfg | default(false) | bool
+
+    - name: Create the nmstate operator group
+      kubernetes.core.k8s:
+        kind: OperatorGroup
+        definition:
+          apiVersion: operators.coreos.com/v1
+          kind: OperatorGroup
+          metadata:
+            annotations:
+              olm.providedAPIs: NMState.v1.nmstate.io
+            name: openshift-nmstate-flnnw
+            namespace: openshift-nmstate
+          spec:
+            targetNamespaces:
+              - openshift-nmstate
+            upgradeStrategy: Default
+      when:
+        - nmstate_cfg | default(false) | bool
+
+    - name: Create the nmstate subscription
+      kubernetes.core.k8s:
+        kind: Subscription
+        definition:
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            labels:
+              operators.coreos.com/kubernetes-nmstate-operator.openshift-nmstate: ""
+            name: kubernetes-nmstate-operator
+            namespace: openshift-nmstate
+          spec:
+            channel: stable
+            installPlanApproval: Automatic
+            name: kubernetes-nmstate-operator
+            source: redhat-operators
+            sourceNamespace: openshift-marketplace
+      when:
+        - nmstate_cfg | default(false) | bool
+
+    # - name: Pause for 60 seconds to wait for pods
+    #   ansible.builtin.pause:
+    #     seconds: 60
+    #   when:
+    #     - nmstate_cfg | default(false) | bool
+
+    # - name: Wait for all pods to be running on openshift-nmstate
+    #   kubernetes.core.k8s_info:
+    #     api_version: v1
+    #     kind: Pod
+    #     namespace: "openshift-nmstate"
+    #   register: pod_list
+    #   until: pod_list.resources | selectattr('status.phase', 'eq', 'Running') | list | length == pod_list.resources | length
+    #   retries: 60
+    #   delay: 10
+    #   when:
+    #     - nmstate_cfg | default(false) | bool
+
+    - name: Ensure users namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "namespace-user{{ item }}"
+      register: namespaceusers
+      until: namespaceusers is succeeded
+      retries: 60
+      delay: 10
+      failed_when: namespaceusers is failed or namespaceusers.failed
+      with_sequence: start=1 end={{ num_users }}
+
+    - name: Grant cluster-admin role to users in their namespaces
+      kubernetes.core.k8s:
+        state: present
+        namespace: "namespace-user{{ item }}"
+        kind: RoleBinding
+        api_version: rbac.authorization.k8s.io/v1
+        name: user-cluster-admin-binding
+        definition:
+          kind: RoleBinding
+          apiVersion: rbac.authorization.k8s.io/v1
+          metadata:
+            name: user-cluster-admin-binding
+            namespace: "namespace-user{{ item }}"
+          subjects:
+            - kind: User
+              name: "user{{ item }}"
+              apiGroup: rbac.authorization.k8s.io
+          roleRef:
+            kind: ClusterRole
+            name: cluster-admin
+            apiGroup: rbac.authorization.k8s.io
+      register: rbacusers
+      until: rbacusers is succeeded
+      retries: 60
+      delay: 10
+      failed_when: rbacusers is failed or rbacusers.failed
+      with_sequence: start=1 end={{ num_users }}
+
+    - name: Moving openshift-monitoring pods to run on control-planes
+      kubernetes.core.k8s:
+        state: present
+        template: "configmap-monitoring.yaml.j2"
+      register: cmmonit
+      until: cmmonit is succeeded
+      retries: 60
+      delay: 10
+      failed_when: cmmonit is failed or cmmonit.failed
+
+    - name: Adding default tolerations and nodeselector on openshift-gitops
+      kubernetes.core.k8s:
+        kind: Namespace
+        name: "{{ item }}"
+        merge_type: merge
+        resource_definition:
+          metadata:
+            annotations:
+              scheduler.alpha.kubernetes.io/defaultTolerations: '[{"operator": "Exists"}]'
+              openshift.io/node-selector: "node-role.kubernetes.io/master=\"\""
+      register: tolerations
+      until: tolerations is succeeded
+      retries: 60
+      delay: 10
+      failed_when: tolerations is failed or tolerations.failed
+      loop:
+        - openshift-storage
+        - openshift-cnv
+
+    - name: Moving pods on openshift-cnv to masters
+      kubernetes.core.k8s:
+        api_version: hco.kubevirt.io/v1beta1
+        kind: HyperConverged
+        name: kubevirt-hyperconverged
+        merge_type: merge
+        namespace: openshift-cnv
+        resource_definition:
+          spec:
+            infra:
+              nodePlacement:
+                nodeSelector:
+                  node-role.kubernetes.io/infra: ""
+              tolerations:
+                - operator: Exists
+      register: cnvinfra
+      until: cnvinfra is succeeded
+      retries: 60
+      delay: 10
+      failed_when: cnvinfra is failed or cnvinfra.failed
+
+    - name: Add tolerations to run csidrivers on masters
+      kubernetes.core.k8s:
+        kind: ConfigMap
+        name: rook-ceph-operator-config
+        merge_type: merge
+        namespace: openshift-storage
+        resource_definition:
+          data:
+            CSI_PLUGIN_TOLERATIONS: |
+              - operator: Exists
+      register: csistorage
+      until: csistorage is succeeded
+      retries: 60
+      delay: 10
+      failed_when: csistorage is failed or csistorage.failed
+
+    - name: Delete applicationset on openshift-gitops
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Pod
+        namespace: openshift-gitops
+        state: absent
+      register: appsetrm
+      until: appsetrm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: appsetrm is failed or appsetrm.failed
+
+    - name: Delete all pods in the namespaces
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ item }}"
+        state: absent
+        label_selectors: ""
+      loop:
+        - openshift-gitops
+      register: deletepods
+      until: deletepods is succeeded
+      retries: 60
+      delay: 10
+      failed_when: deletepods is failed or deletepods.failed
+
+    - name: Getting all nodes
+      kubernetes.core.k8s_info:
+        kind: Node
+      register: allnodes
+
+    - name: Getting only worker nodes
+      ansible.builtin.set_fact:
+        nodes_list: "{{ allnodes.resources | selectattr('metadata.labels', 'defined') | \
+                     selectattr('metadata.labels', 'search', 'node-role.kubernetes.io/worker') | map(attribute='metadata.name') | list }}"
+
+    - name: Getting only control-planes
+      ansible.builtin.set_fact:
+        controlplane_nodes_list: "{{ allnodes.resources | selectattr('metadata.labels', 'defined') | \
+                     selectattr('metadata.labels', 'search', 'node-role.kubernetes.io/control-plane') | map(attribute='metadata.name') | list }}"
+
+    - name: Add label node-role.kubernetes.io/infra to all master nodes
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Node
+          metadata:
+            name: "{{ item }}"
+            labels:
+              node-role.kubernetes.io/infra: ""
+      loop: "{{ controlplane_nodes_list }}"
+
+    - name: Add label userX=true to the current worker node
+      ansible.builtin.command:
+        cmd: oc label node "{{ nodes_list[item | int  % nodes_list | length - 1 ] }}" user{{ item | int }}="true"
+      with_sequence: start=1 end={{ num_users }}
+
+    - name: Add label userX=true to the next worker node
+      ansible.builtin.command:
+        cmd: oc label node "{{ nodes_list[item | int  % nodes_list | length - 2 ] }}" user{{ item | int }}="true"
+      with_sequence: start=1 end={{ num_users }}
+
+    - name: New /etc/bashrc file
+      ansible.builtin.template:
+        src: bashrc-bastion.j2
+        dest: "/etc/bashrc"
+        mode: '0644'
+      become: true
+      become_method: sudo
+
+    - name: Clone tmux repo to lab-user
+      ansible.builtin.git:
+        repo: https://github.com/lgchiaretto/tmux.git
+        dest: /home/lab-user/tmux
+      ignore_errors: true
+
+    - name: Execute configure-local.sh script
+      ansible.builtin.shell:
+        cmd: /home/lab-user/tmux/configure-local.sh
+      ignore_errors: true
+
+    - name: Create configure-tmux-users.sh script
+      ansible.builtin.template:
+        src: 'configure-tmux-users.sh.j2'
+        dest: '/home/lab-user/configure-tmux-users.sh'
+        mode: '0755'
+      ignore_errors: true
+
+    - name: Execute configure-tmux-users.sh script
+      ansible.builtin.shell:
+        cmd: /home/lab-user/configure-tmux-users.sh
+      become: true
+      become_method: sudo
+      ignore_errors: true
+
+    - name: Clone tmux plugins repo to users
+      ansible.builtin.git:
+        repo: https://github.com/tmux-plugins/tpm.git
+        dest: /home/user{{ item | int }}/.tmux/plugins/tpm
+      with_sequence: start=1 end={{ num_users }}
+      become: true
+      become_method: sudo
+      ignore_errors: true
+
+    - name: Copy configure-tmux-users.sh to all users
+      ansible.builtin.shell:
+        cmd: '/home/lab-user/configure-tmux-users.sh'
+      ignore_errors: true
+
+    - name: Changing the file ocp-cluster.tmux
+      ansible.builtin.replace:
+        path: /home/user{{ item | int }}/.tmux/ocp-cluster.tmux
+        regexp: '/tmp/dummy-file-tmux'
+        replace: '~/.dummy-file-tmux'
+      with_sequence: start=1 end={{ num_users }}
+      become: true
+      become_method: sudo
+      ignore_errors: true
+
+    - name: Create the ClusterRole to user view server info
+      kubernetes.core.k8s:
+        kind: ClusterRole
+        namespace: 'namespace-user{{ item | int }}'
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: view-server-version
+          rules:
+            - apiGroups: ["config.openshift.io"]
+              resources: ["clusterversions"]
+              verbs: ["get"]
+      with_sequence: start=1 end={{ num_users }}
+      ignore_errors: true
+
+    - name: Create the ClusterRole to user metrics
+      kubernetes.core.k8s:
+        kind: ClusterRole
+        namespace: 'namespace-user{{ item | int }}'
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: 'cluster-monitoring-view-user{{ item | int }}'
+            namespace: 'namespace-user{{ item | int }}'
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-monitoring-view
+          subjects:
+            - apiGroup: rbac.authorization.k8s.io
+              kind: User
+              name: 'user{{ item | int }}'
+      with_sequence: start=1 end={{ num_users }}
+      ignore_errors: true
+
+    - name: Create the ClusterRoleBinding to user view server info
+      kubernetes.core.k8s:
+        kind: ClusterRoleBinding
+        namespace: 'namespace-user{{ item | int }}'
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: view-server-version-binding
+          subjects:
+            - kind: User
+              name: 'user{{ item | int }}'
+              apiGroup: rbac.authorization.k8s.io
+          roleRef:
+            kind: ClusterRole
+            name: view-server-version
+            apiGroup: rbac.authorization.k8s.io
+      with_sequence: start=1 end={{ num_users }}
+      ignore_errors: true
+
+    - name: Ensure community.crypto is installed
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection install community.crypto
+      register: install_result
+
+    - name: Ensure .ssh directory exists on users dir
+      ansible.builtin.file:
+        path: /home/user{{ item }}/.ssh
+        state: directory
+        owner: 'user{{ item }}'
+        group: 'user{{ item }}'
+        mode: '0700'
+      with_sequence: start=1 end={{ num_users }}
+      become: true
+      become_method: ansible.builtin.sudo
+      ignore_errors: true
+
+    - name: Generate RSA 2048 SSH key pair for users
+      community.crypto.openssh_keypair:
+        path: /home/user{{ item }}/.ssh/id_rsa
+        type: rsa
+        size: 2048
+        state: present
+        mode: '0600'
+        owner: 'user{{ item }}'
+        group: 'user{{ item }}'
+      register: ssh_key_result
+      with_sequence: start=1 end={{ num_users }}
+      become: true
+      become_method: ansible.builtin.sudo
+      ignore_errors: true
+
+    # - name: Remove argocd CRD on openshift-gitops
+    #   kubernetes.core.k8s:
+    #     kind: ArgoCD
+    #     api_version: argoproj.io/v1alpha1
+    #     namespace: openshift-gitops
+    #     name: openshift-gitops
+    #     state: absent
+    #   register: removeargo
+
+    # - name: Get all applications on openshift-gitops
+    #   kubernetes.core.k8s_info:
+    #     kind: Application
+    #     api_version: argoproj.io/v1alpha1
+    #     namespace: openshift-gitops
+    #   register: application_crds
+
+    # - name: Remove applications
+    #   kubernetes.core.k8s:
+    #     kind: Application
+    #     api_version: argoproj.io/v1alpha1
+    #     namespace: openshift-gitops
+    #     name: "{{ item.metadata.name }}"
+    #     state: absent
+    #   loop: "{{ application_crds.resources }}"
+
+    # - name: Remove finalizer of the applications
+    #   kubernetes.core.k8s:
+    #     kind: Application
+    #     api_version: argoproj.io/v1alpha1
+    #     namespace: openshift-gitops
+    #     definition:
+    #       metadata:
+    #         name: "{{ item.metadata.name }}"
+    #         finalizers: "{{ item.metadata.finalizers | difference(['resources-finalizer.argocd.argoproj.io']) }}"
+    #   loop: "{{ application_crds.resources }}"
+    #   when: "'resources-finalizer.argocd.argoproj.io' in item.metadata.finalizers"
+
+    # - name: Removing OADP projects
+    #   kubernetes.core.k8s:
+    #     state: absent
+    #     definition:
+    #       apiVersion: v1
+    #       kind: Namespace
+    #       metadata:
+    #         name: "oadp-user{{ item }}"
+    #   register: removeoadp
+    #   until: removeoadp is succeeded
+    #   retries: 60
+    #   delay: 10
+    #   failed_when: removeoadp is failed or removeoadp.failed
+    #   with_sequence: start=1 end={{ num_users }}
+
+    # - name: Remove Subscription OpenShift GitOps
+    #   kubernetes.core.k8s:
+    #     api_version: operators.coreos.com/v1alpha1
+    #     namespace: openshift-operators
+    #     kind: Subscription
+    #     name: openshift-gitops-operator
+    #     state: absent
+
+    # - name: Remove ClusterServiceVersion OpenShift GitOps
+    #   kubernetes.core.k8s:
+    #     api_version: operators.coreos.com/v1alpha1
+    #     namespace: openshift-operators
+    #     kind: clusterserviceversion
+    #     name: openshift-gitops-operator.v1.13.3
+    #     state: absent
+
+    - name: New /usr/loca/bin/test-lab-performance.sh file
+      ansible.builtin.template:
+        src: test-lab-performance.sh.j2
+        dest: "/usr/local/bin/test-lab-performance.sh"
+        mode: '0755'
+      become: true
+      become_method: sudo
+
+    - name: New /home/lab-user/generate-tmux-session.sh file on CNV
+      ansible.builtin.template:
+        src: generate-tmux-session.sh.j2
+        dest: "/home/lab-user/generate-tmux-session.sh"
+        mode: '0755'
+        owner: "lab-user"
+        group: "100"
+      ignore_errors: true
+
+    - name: Run /home/lab-user/generate-tmux-session.sh
+      ansible.builtin.command:
+        cmd: bash /home/lab-user/generate-tmux-session.sh
+      register: tmuxsessionfile
+      ignore_errors: true
+
+    - name: Enabling multi network policy
+      ansible.builtin.command:
+        cmd: oc patch network.operator.openshift.io/cluster --type='merge' -p '{"spec":{"useMultiNetworkPolicy":true}}'
+      register: enablemnp
+      ignore_errors: true
+
+    - name: Configuring clusterrole for ex10
+      kubernetes.core.k8s:
+       kind: rbac.authorization.k8s.io/v1
+       definition:
+         apiVersion: rbac.authorization.k8s.io/v1
+         kind: ClusterRole
+         metadata:
+           name: network-access
+         rules:
+           - apiGroups:
+               - operator.openshift.io
+             resources:
+               - networks
+             verbs:
+               - get
+               - list
+               - watch
+
+    - name: Configuring clusterrole for ex10 part 2
+      kubernetes.core.k8s:
+        kind: rbac.authorization.k8s.io/v1
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: read-nodenetworkstates-cluster
+          rules:
+          - apiGroups: ["nmstate.io"]
+            resources: ["nodenetworkstates", "nodenetworkconfigurationenactments", "nodenetworkconfigurationpolicies"]
+            verbs: ["get", "list", "watch"]
+
+    - name: Configuring clusterrolebinding for ex10 on users
+      kubernetes.core.k8s:
+        kind: rbac.authorization.k8s.io/v1
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: network-access-binding-user{{ item }}
+          subjects:
+            - kind: User
+              name: user{{ item }}
+              apiGroup: rbac.authorization.k8s.io
+          roleRef:
+            kind: ClusterRole
+            name: network-access
+            apiGroup: rbac.authorization.k8s.io
+      with_sequence: start=1 end={{ num_users }}
+
+    - name: Configuring clusterrolebinding for ex10 on users part 2
+      kubernetes.core.k8s:
+        kind: rbac.authorization.k8s.io/v1
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: read-nodenetworkstates-cluster-binding-user{{ item }}
+          subjects:
+            - kind: User
+              name: user{{ item }}
+              apiGroup: rbac.authorization.k8s.io
+          roleRef:
+            kind: ClusterRole
+            name: read-nodenetworkstates-cluster
+            apiGroup: rbac.authorization.k8s.io
+      with_sequence: start=1 end={{ num_users }}
+
+    - name: Get list of OCP nodes
+      kubernetes.core.k8s_info:
+        kind: Node
+      register: node_list
+      ignore_errors: true
+      when:
+        - nmstate_cfg is not defined
+
+    - name: Extract node names
+      ansible.builtin.set_fact:
+        node_names: "{{ node_list.resources | map(attribute='metadata.name') | list }}"
+      ignore_errors: true
+      when:
+        - nmstate_cfg is not defined
+ 
+#    - name: Wait for ip_forward to be 0 on OCP nodes
+#      ansible.builtin.command:
+#        cmd: >
+#          oc debug node/{{ item }} -- chroot /host bash -c "cat /proc/sys/net/ipv4/ip_forward"
+#      register: ipforward
+#      until: ipforward.stdout == "0"
+#      retries: 60
+#      delay: 10
+#      with_items: "{{ node_names }}"
+#      ignore_errors: true
+#      when:
+#        - nmstate_cfg is not defined
+#
+#    - name: Change ip_forward to be 1 on OCP nodes
+#      ansible.builtin.command:
+#        cmd: >
+#          oc debug node/{{ item }} -- chroot /host bash -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+#      register: changeipforward
+#      with_items: "{{ node_names }}"
+#      ignore_errors: true
+#      when:
+#        - nmstate_cfg is not defined
+#
+#    - name: Execute sysctl -p on OCP nodes
+#      ansible.builtin.command:
+#        cmd: >
+#          oc debug node/{{ item }} -- chroot /host bash -c "sudo sysctl -p"
+#      register: sysctlp
+#      with_items: "{{ node_names }}"
+#      ignore_errors: true
+#      when:
+#        - nmstate_cfg is not defined
+
+    - name: Wait for the nmstate CRD to be created
+      kubernetes.core.k8s_info:
+        kind: CustomResourceDefinition
+        api_version: apiextensions.k8s.io/v1
+      register: crds
+      retries: 30
+      delay: 10
+      until: "'nmstates.nmstate.io' in crds.resources | map(attribute='metadata.name') | list"
+      ignore_errors: true
+
+    - name: Create the nmstate
+      kubernetes.core.k8s:
+        kind: NMState
+        definition:
+          apiVersion: nmstate.io/v1
+          kind: NMState
+          metadata:
+            name: nmstate
+          spec: {}
+      when:
+        - nmstate_cfg | default(false) | bool
+      ignore_errors: true
+
+    - name: Create the ocs-storagecluster-ceph-rbd SC
+      kubernetes.core.k8s:
+        kind: StorageClass
+        definition:
+          allowVolumeExpansion: true
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            annotations:
+              description: Provides RWO Filesystem volumes, and RWO and RWX Block volumes
+            name: ocs-storagecluster-ceph-rbd
+          parameters:
+            clusterID: openshift-storage
+            csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/controller-expand-secret-namespace: openshift-storage
+            csi.storage.k8s.io/fstype: ext4
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+            csi.storage.k8s.io/node-stage-secret-namespace: openshift-storage
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: openshift-storage
+            imageFeatures: layering,deep-flatten,exclusive-lock,object-map,fast-diff
+            imageFormat: "2"
+            pool: ocpv-tenants
+            volumeNamePrefix: ocp4-cluster-8wmwj-
+          provisioner: openshift-storage.rbd.csi.ceph.com
+          reclaimPolicy: Delete
+          volumeBindingMode: WaitForFirstConsumer
+      when:
+        - nmstate_cfg is not defined
+      ignore_errors: true
+
+    - name: Change memoryOvercommitPercentage to 200 on kubevirt-hyperconverged
+      kubernetes.core.k8s:
+        state: patched
+        kind: HyperConverged
+        api_version: hco.kubevirt.io/v1beta1
+        name: kubevirt-hyperconverged
+        namespace: openshift-cnv
+        merge_type:
+          - merge
+        definition:
+          spec:
+            higherWorkloadDensity:
+              memoryOvercommitPercentage: 200
+      ignore_errors: true

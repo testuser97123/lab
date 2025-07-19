@@ -1,0 +1,42 @@
+- name: Cleaning the exercise6
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Removing exercise6 virtual machine
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise6-create-vm.yaml.j2"
+      register: exercise6vm
+      until: exercise6vm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: exercise6vm is failed or exercise6vm.failed
+
+    - name: Wait for the Virtual Machine to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise6"
+      register: cleanvm
+      retries: 60
+      delay: 2
+      until: cleanvm.resources | length == 0
+
+    # - name: Get user SSH key
+    #   ansible.builtin.slurp:
+    #     src: "/home/{{ user }}/.ssh/id_rsa.pub"
+    #   register: usersshkey
+
+    # - name: Removing the idrsa secret
+    #   kubernetes.core.k8s:
+    #     state: absent
+    #     template: "exercise4-secret.yaml.j2"
+    #   register: secretidrsa
+    #   until: secretidrsa is succeeded
+    #   retries: 60
+    #   delay: 10
+    #   failed_when: secretidrsa is failed or secretidrsa.failed

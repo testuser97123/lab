@@ -1,0 +1,156 @@
+- name: Fixing the exercise7
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Clean the exercise7
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise7-vm.yaml.j2"
+      register: cleanvm
+      until: cleanvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: cleanvm is failed or cleanvm.failed
+
+    - name: Wait for the Virtual Machine to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise7"
+      register: cleanvm
+      retries: 60
+      delay: 2
+      until: cleanvm.resources | length == 0
+
+    - name: Remove exercise7-restoresnapshot.yaml script
+      ansible.builtin.file:
+        path: '/home/{{ user }}/exercise7-restoresnapshot.yaml'
+        state: absent
+
+    - name: Creating the exercise7 virtual machine
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise7-vm.yaml.j2"
+      register: breakvm
+      until: breakvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: breakvm is failed or breakvm.failed
+
+    - name: Wait for VM to be running
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        namespace: "namespace-{{ user }}"
+        name: "exercise7"
+      register: exercise7info
+      until: "exercise7info.resources | length > 0 and exercise7info.resources[0].status.phase == 'Running'"
+      retries: 60
+      delay: 10
+      failed_when: exercise7info.resources | length == 0
+
+    - name: Create the VM snapshot
+      kubernetes.core.k8s:
+        kind: VirtualMachineSnapshot
+        namespace: 'namespace-{{ user }}'
+        definition:
+          apiVersion: snapshot.kubevirt.io/v1alpha1
+          kind: VirtualMachineSnapshot
+          metadata:
+            name: exercise7-snapshot
+          spec:
+            source:
+              apiGroup: kubevirt.io
+              kind: VirtualMachine
+              name: exercise7
+
+    - name: Create exercise7-restoresnapshot.yaml script
+      ansible.builtin.template:
+        src: 'exercise7-restoresnapshot.yaml.j2'
+        dest: '/home/{{ user }}/exercise7-restoresnapshot.yaml'
+        mode: '0644'
+
+    - name: Check if exercise7 VM exists
+      kubernetes.core.k8s_info:
+        namespace: "namespace-{{ user }}"
+        kind: VirtualMachine
+        name: exercise7
+      register: ex1vm
+      failed_when: false
+
+    - name: Fail if not executed break first
+      ansible.builtin.fail:
+        msg: "You must run 'lab break exercise7' before run the lab fix"
+      when: ex1vm.resources | length == 0
+
+    - name: Stop VM exercise7 if it exists
+      kubernetes.core.k8s:
+        namespace: "namespace-{{ user }}"
+        kind: VirtualMachine
+        name: exercise7
+        state: present
+        definition:
+          spec:
+            running: false
+      register: stopvm
+      until: stopvm is succeeded
+      retries: 60
+      delay: 10
+      when: ex1vm.resources | length > 0
+
+    - name: Wait for VirtualMachine to stop
+      kubernetes.core.k8s_info:
+        kind: VirtualMachineInstance
+        namespace: "namespace-{{ user }}"
+        name: "exercise7"
+      register: exercise7vm
+      retries: 60
+      delay: "10"
+      until: exercise7vm.resources | length == 0
+
+    - name: Restore the snapshot
+      kubernetes.core.k8s:
+        kind: VirtualMachineRestore
+        namespace: 'namespace-{{ user }}'
+        definition:
+          apiVersion: snapshot.kubevirt.io/v1alpha1
+          kind: VirtualMachineRestore
+          metadata:
+            name: restore-exercise7-snapshot
+          spec:
+            target:
+              apiGroup: kubevirt.io
+              kind: VirtualMachine
+              name: exercise7
+            virtualMachineSnapshotName: exercise7-snapshot
+
+    - name: Set VM to start state
+      kubernetes.core.k8s:
+        namespace: "namespace-{{ user }}"
+        kind: VirtualMachine
+        name: exercise7
+        state: present
+        definition:
+          spec:
+            running: true
+      register: startvm
+      until: startvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: startvm is failed or startvm.failed
+
+    - name: Wait for VM to be running
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        namespace: "namespace-{{ user }}"
+        name: "exercise7"
+      register: exercise7info
+      until: "exercise7info.resources | length > 0 and exercise7info.resources[0].status.phase == 'Running'"
+      retries: 60
+      delay: 10
+      failed_when: exercise7info.resources | length == 0

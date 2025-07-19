@@ -1,0 +1,51 @@
+---
+- name: Preparing the exercise8
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Create SSH config file with StrictHostKeyChecking no
+      ansible.builtin.copy:
+        dest: '/home/{{ user }}/.ssh/config'
+        content: |
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+        owner: '{{ user }}'
+        group: '{{ user }}'
+        mode: '0600'
+
+    - name: Create the idrsa secret
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise8-secret.yaml.j2"
+      register: secretidrsa
+      until: secretidrsa is succeeded
+      retries: 60
+      delay: 10
+      failed_when: secretidrsa is failed or secretidrsa.failed
+
+    - name: Creating the exercise8 virtual machine
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise8-vm-rhel9.yaml.j2"
+      register: breakvm
+      until: breakvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: breakvm is failed or breakvm.failed
+
+    - name: Wait for VM to be running
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        namespace: "namespace-{{ user }}"
+        name: "exercise8"
+      register: exercise8info
+      until: "exercise8info.resources | length > 0 and exercise8info.resources[0].status.phase == 'Running'"
+      retries: 60
+      delay: 10
+      failed_when: exercise8info.resources | length == 0

@@ -1,0 +1,32 @@
+- name: Cleaning the exercise7
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Clean the exercise7
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise7-vm.yaml.j2"
+      register: cleanvm
+      until: cleanvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: cleanvm is failed or cleanvm.failed
+
+    - name: Wait for the Virtual Machine to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise7"
+      register: cleanvm
+      retries: 60
+      delay: 2
+      until: cleanvm.resources | length == 0
+
+    - name: Remove exercise7-restoresnapshot.yaml script
+      ansible.builtin.file:
+        path: '/home/{{ user }}/exercise7-restoresnapshot.yaml'
+        state: absent

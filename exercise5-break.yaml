@@ -1,0 +1,80 @@
+- name: Preparing the exercise5
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Create SSH config file with StrictHostKeyChecking no
+      ansible.builtin.copy:
+        dest: '/home/{{ user }}/.ssh/config'
+        content: |
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+        owner: '{{ user }}'
+        group: '{{ user }}'
+        mode: '0600'
+
+    - name: Get user SSH key
+      ansible.builtin.slurp:
+        src: "/home/{{ user }}/.ssh/id_rsa.pub"
+      register: usersshkey
+
+    - name: Create the idrsa secret
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise5-secret.yaml.j2"
+      register: secretidrsa
+      until: secretidrsa is succeeded
+      retries: 60
+      delay: 10
+      failed_when: secretidrsa is failed or secretidrsa.failed
+
+    - name: Creating virtual machine
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise5-create-vm.yaml.j2"
+      register: exercise5vm
+      until: exercise5vm is succeeded
+      retries: 5
+      delay: 10
+      failed_when: exercise5vm is failed or exercise5vm.failed
+
+    - name: Wait for VM to be running
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        namespace: "namespace-{{ user }}"
+        name: "exercise5"
+      register: exercise5info
+      until: "exercise5info.resources | length > 0 and exercise5info.resources[0].status.phase == 'Running'"
+      retries: 60
+      delay: 10
+      failed_when: exercise5info.resources | length == 0
+
+    - name: Add data volume to virtual machine
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise5-breakdatavol.yaml.j2"
+      register: exercise5datavol
+      until: exercise5datavol is succeeded
+      retries: 5
+      delay: 10
+      failed_when: exercise5datavol is failed or exercise5datavol.failed
+
+    - name: Add data disk 1 to virtual machine
+      ansible.builtin.command: virtctl addvolume exercise5 --volume-name=exercise5-vol-data1 --persist
+      register: exercise5fixdatadisk1
+
+    - name: Wait for exercise5
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise5
+      ignore_errors: true
+      no_log: false
+      register: testssh
+      until:
+        - testssh.rc == 0
+      retries: 20
+      delay: 10

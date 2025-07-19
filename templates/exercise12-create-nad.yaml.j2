@@ -1,0 +1,7 @@
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: exercise12-nad
+  namespace: 'namespace-{{ user }}'
+spec:
+  config: '{ "cniVersion": "0.4.0", "name": "exercise12-nad", "netAttachDefName": "namespace-{{ user }}/exercise12-nad", "topology": "layer2", "type": "ovn-k8s-cni-overlay", "subnets": "192.168.0.0/24" }'

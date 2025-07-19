@@ -1,0 +1,17 @@
+- name: Preparing the exercise1
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Breaking the exercise1
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise1-break-vm.yaml.j2"
+      register: breakvm
+      until: breakvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: breakvm is failed or breakvm.failed

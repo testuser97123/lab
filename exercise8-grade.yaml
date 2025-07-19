@@ -1,0 +1,28 @@
+- name: Grading the exercise8
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Testing the ssh access
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise8
+      ignore_errors: true
+      no_log: false
+      register: testssh
+      until:
+        - testssh.rc == 0
+      retries: 5
+      delay: 10
+
+    - name: Check if vn be accessed over SSH
+      ansible.builtin.fail:
+        msg: "Ooops, SSH is not working"
+      when: testssh.rc != 0
+
+    - name: Check the exercise8 status
+      ansible.builtin.debug:
+        msg: "Congrats, the user can now have access to the VM using SSH again. The dev team will be more careful with the SSH keys next time!"
+      when: testssh.rc == 0

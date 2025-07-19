@@ -1,0 +1,96 @@
+- name: Preparing the exercise6
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+    vm_name: "exercise6"
+    namespace: "namespace-{{ user }}"
+
+  tasks:
+    - name: Create SSH config file with StrictHostKeyChecking no
+      ansible.builtin.copy:
+        dest: '/home/{{ user }}/.ssh/config'
+        content: |
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+        owner: '{{ user }}'
+        group: '{{ user }}'
+        mode: '0600'
+
+    - name: Get user SSH key
+      ansible.builtin.slurp:
+        src: "/home/{{ user }}/.ssh/id_rsa.pub"
+      register: usersshkey
+
+    - name: Create the idrsa secret
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise4-secret.yaml.j2"
+      register: secretidrsa
+      until: secretidrsa is succeeded
+      retries: 60
+      delay: 10
+      failed_when: secretidrsa is failed or secretidrsa.failed
+
+    # - name: Check if VM exists and get details
+    #   kubernetes.core.k8s_info:
+    #     kind: VirtualMachine
+    #     api_version: kubevirt.io/v1
+    #     name: "{{ vm_name }}"
+    #     namespace: "{{ namespace }}"
+    #   register: vm_info
+
+    # - name: If exists and running stop VirtualMachine 
+    #   when: vm_info.resources | length > 0 and vm_info.resources[0].spec.running == true
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: kubevirt.io/v1
+    #       kind: VirtualMachine
+    #       metadata:
+    #         name: "{{ vm_name }}"
+    #         namespace: "{{ namespace }}"
+    #       spec:
+    #         running: false
+    #   register: stop_vm
+
+    # - name: Wait for VirtualMachine to stop
+    #   when: stop_vm is defined
+    #   ansible.builtin.wait_for:
+    #     timeout: 60
+    #   delay: 10
+
+    # - name: Wait for VirtualMachine to stop
+    #   kubernetes.core.k8s_info:
+    #     kind: VirtualMachineInstance
+    #     namespace: "namespace-{{ user }}"
+    #     name: "exercise6"
+    #   register: exercise6vm
+    #   retries: 60
+    #   delay: "10"
+    #   until: exercise6vm.resources | length == 0
+
+    - name: Breaking the exercise6
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise6-create-vm.yaml.j2"
+      register: breakvm
+      until: breakvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: breakvm is failed or breakvm.failed
+
+    - name: Wait for exercise6
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise6
+      ignore_errors: true
+      no_log: false
+      register: testssh
+      until:
+        - testssh.rc == 0
+      retries: 20
+      delay: 10
+
+

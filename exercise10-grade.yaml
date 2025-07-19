@@ -1,0 +1,27 @@
+- name: Grading the exercise10
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Check if exercise10-b VM is reachable
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise10-a --command 'ping -c1 192.168.0.11'
+      ignore_errors: true
+      no_log: false
+      register: testping
+      until: testping.rc == 0
+      retries: 5
+      delay: 10
+
+    - name: Check the exercise10-a status
+      ansible.builtin.fail:
+        msg: "Ooops, The exercise10-a virtual machine is not reachable."
+      when: testping.rc != 0
+
+    - name: Check the exercise10-a status
+      ansible.builtin.debug:
+        msg: "Nice job, the access to all virtual machines are working as expected."
+      when: testping.rc == 0

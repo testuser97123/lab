@@ -1,0 +1,17 @@
+- name: Preparing exercise2
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Creating VM exercise2
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise2-create-vm.yaml.j2"
+      register: createvm
+      until: createvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: createvm is failed or createvm.failed

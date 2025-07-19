@@ -1,0 +1,30 @@
+- name: Grading the exercise9
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Get exercise9 Virtual Machine
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: exercise9
+        namespace: namespace-{{ user }}
+      register: exercise9vm
+
+    - name: Check if runStrategy is set to 'Manual'
+      ansible.builtin.set_fact:
+        run_strategy_valid: >-
+          {{ exercise9vm.resources[0].spec.runStrategy == 'Manual' }}
+
+    - name: Show success message if runStrategy is set correctly
+      ansible.builtin.debug:
+        msg: "The runStrategy is set correctly, and now the user can shut down their VM via Operating System!"
+      when: run_strategy_valid
+
+    - name: Show failure message if runStrategy is not set correctly
+      ansible.builtin.fail:
+        msg: "The runStrategy is not set correctly. It should be 'Manual'."
+      when: not run_strategy_valid

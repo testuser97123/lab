@@ -1,0 +1,87 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: "exercise5"
+  namespace: "namespace-{{ user }}"
+  labels:
+    kubevirt.io/dynamic-credentials-support: 'true'
+    app: exercise5
+spec:
+  dataVolumeTemplates:
+    - metadata:
+        name: "exercise5-volume"
+      spec:
+        sourceRef:
+          kind: DataSource
+          name: rhel9
+          namespace: openshift-virtualization-os-images
+        storage:
+          resources: {}
+          storageClassName: ocs-storagecluster-ceph-rbd
+  running: true
+  template:
+    metadata:
+      annotations:
+        vm.kubevirt.io/flavor: small
+        vm.kubevirt.io/os: rhel9
+        vm.kubevirt.io/workload: server
+      labels:
+        network.kubevirt.io/headlessService: headless
+    spec:
+      accessCredentials:
+        - sshPublicKey:
+            propagationMethod:
+              qemuGuestAgent:
+                users:
+                  - lab-user
+            source:
+              secret:
+                secretName: idrsa
+      architecture: amd64
+      domain:
+        cpu:
+          cores: 1
+          sockets: 2
+          threads: 1
+        devices:
+          disks:
+            - disk:
+                bus: virtio
+              name: rootdisk
+            - disk:
+                bus: virtio
+              name: cloudinitdisk
+          interfaces:
+            - masquerade: {}
+              model: virtio
+              name: default
+          rng: {}
+        features:
+          acpi: {}
+          smm:
+            enabled: true
+        firmware:
+          bootloader:
+            efi: {}
+        machine:
+          type: pc-q35-rhel9.4.0
+        memory:
+          guest: 4Gi
+        resources: {}
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 180  
+      volumes:
+        - dataVolume:
+            name: "exercise5-volume"
+          name: rootdisk
+        - cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              user: "lab-user"
+              password: redhat1
+              chpasswd: { expire: False }
+              runcmd:
+              - [ setsebool, -P, virt_qemu_ga_manage_ssh, on ]
+          name: cloudinitdisk

@@ -1,0 +1,16 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: exercise3
+  namespace: "namespace-{{ user }}"
+spec:
+  port:
+    targetPort: 80
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+  to:
+    kind: Service
+    name: exercise3
+    weight: 100
+  wildcardPolicy: None

@@ -1,0 +1,17 @@
+#!/bin/bash
+
+TMUX_GIT_DIR="/home/lab-user/tmux"
+
+sudo cp $TMUX_GIT_DIR/.tmux.conf /etc/tmux.conf
+
+for user in $(seq 1 {{ num_users }})
+do
+  echo "Configuring .bashrc, vimrc and .tmux.conf files"
+  cp $TMUX_GIT_DIR/{.bashrc,.tmux.conf,.vimrc} /home/user$user
+  mkdir -p /home/user$user/.tmux/
+  cp $TMUX_GIT_DIR/{ocp-project.tmux,ocp-cluster.tmux} /home/user$user/.tmux/
+  chown user$user:user$user /home/user$user/{.bashrc,.tmux.conf,.vimrc}
+  chmod 755 /home/user$user/.tmux/{ocp-project.tmux,ocp-cluster.tmux}
+  chown -R user$user:user$user /home/user$user/.tmux/
+  echo "Done"
+done

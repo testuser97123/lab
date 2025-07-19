@@ -1,0 +1,92 @@
+- name: Cleaning the exercise11
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Removing VM A
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise12-create-vm-a.yaml.j2"
+      register: deletevma
+      until: deletevma is succeeded
+      retries: 60
+      delay: 10
+      failed_when: deletevma is failed or deletevma.failed
+
+    - name: Removing VM B
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise12-create-vm-b.yaml.j2"
+      register: deletevmb
+      until: deletevmb is succeeded
+      retries: 60
+      delay: 10
+      failed_when: deletevma is failed or deletevma.failed
+
+    - name: Wait for the Virtual Machine A to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise12-a"
+      register: cleanvma
+      retries: 60
+      delay: 2
+      until: cleanvma.resources | length == 0
+
+    - name: Wait for the Virtual Machine B to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise12-b"
+      register: cleanvmb
+      retries: 60
+      delay: 2
+      until: cleanvmb.resources | length == 0
+
+    - name: Removing NAD
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise12-create-nad.yaml.j2"
+      register: deletenad
+      until: deletenad is succeeded
+      retries: 60
+      delay: 10
+      failed_when: deletenad is failed or deletenad.failed
+
+    # - name: Get user SSH key
+    #   ansible.builtin.slurp:
+    #     src: "/home/{{ user }}/.ssh/id_rsa.pub"
+    #   register: usersshkey
+
+    # - name: Removing the idrsa secret
+    #   kubernetes.core.k8s:
+    #     state: absent
+    #     template: "exercise12-secret.yaml.j2"
+    #   register: secretidrsa
+    #   until: secretidrsa is succeeded
+    #   retries: 60
+    #   delay: 10
+    #   failed_when: secretidrsa is failed or secretidrsa.failed
+
+    - name: Clean MNP deny
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise12-mnp-deny.yaml.j2"
+      register: mnpallow
+      until: mnpallow is succeeded
+      retries: 60
+      delay: 10
+      failed_when: mnpallow is failed or mnpallow.failed
+
+    - name: Clean MNP allow
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise12-mnp-allow.yaml.j2"
+      register: mnpallow
+      until: mnpallow is succeeded
+      retries: 60
+      delay: 10
+      failed_when: mnpallow is failed or mnpallow.failed

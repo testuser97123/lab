@@ -1,0 +1,147 @@
+- name: Fixing the exercise6
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Removing exercise6 virtual machine
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise6-create-vm.yaml.j2"
+      register: exercise6vm
+      until: exercise6vm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: exercise6vm is failed or exercise6vm.failed
+
+    - name: Wait for the Virtual Machine to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise6"
+      register: cleanvm
+      retries: 60
+      delay: 2
+      until: cleanvm.resources | length == 0
+
+    - name: Get user SSH key
+      ansible.builtin.slurp:
+        src: "/home/{{ user }}/.ssh/id_rsa.pub"
+      register: usersshkey
+
+    # - name: Removing the idrsa secret
+    #   kubernetes.core.k8s:
+    #     state: absent
+    #     template: "exercise4-secret.yaml.j2"
+    #   register: secretidrsa
+    #   until: secretidrsa is succeeded
+    #   retries: 60
+    #   delay: 10
+    #   failed_when: secretidrsa is failed or secretidrsa.failed
+
+    - name: Create SSH config file with StrictHostKeyChecking no
+      ansible.builtin.copy:
+        dest: '/home/{{ user }}/.ssh/config'
+        content: |
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+        owner: '{{ user }}'
+        group: '{{ user }}'
+        mode: '0600'
+
+    - name: Create the idrsa secret
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise4-secret.yaml.j2"
+      register: secretidrsa
+      until: secretidrsa is succeeded
+      retries: 60
+      delay: 10
+      failed_when: secretidrsa is failed or secretidrsa.failed
+
+    - name: Breaking the exercise6
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise6-create-vm.yaml.j2"
+      register: breakvm
+      until: breakvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: breakvm is failed or breakvm.failed
+
+    - name: Wait for exercise6
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise6
+      ignore_errors: true
+      no_log: false
+      register: testssh
+      until:
+        - testssh.rc == 0
+      retries: 20
+      delay: 10
+
+
+    - name: Set VM to stopped state
+      kubernetes.core.k8s:
+        namespace: "namespace-{{ user }}"
+        kind: VirtualMachine
+        name: exercise6
+        state: present
+        definition:
+          spec:
+            running: false
+      register: stopvm
+      until: stopvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: stopvm is failed or stopvm.failed
+
+    - name: Wait for VirtualMachine to stop
+      kubernetes.core.k8s_info:
+        kind: VirtualMachineInstance
+        namespace: "namespace-{{ user }}"
+        name: "exercise6"
+      register: exercise6vm
+      retries: 60
+      delay: "10"
+      until: exercise6vm.resources | length == 0
+
+    - name: Fixing exercise6 virtual machine
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise6-fix-vm.yaml.j2"
+      register: exercise6vm
+      until: exercise6vm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: exercise6vm is failed or exercise6vm.failed
+
+    - name: Set VM to start state
+      kubernetes.core.k8s:
+        namespace: "namespace-{{ user }}"
+        kind: VirtualMachine
+        name: exercise6
+        state: present
+        definition:
+          spec:
+            running: true
+      register: startvm
+      until: startvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: startvm is failed or startvm.failed
+
+    - name: Wait for exercise6
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise6
+      ignore_errors: true
+      no_log: false
+      register: testssh
+      until:
+        - testssh.rc == 0
+      retries: 20
+      delay: 10
+

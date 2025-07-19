@@ -1,0 +1,82 @@
+- name: Cleaning the exercise3
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Removing exercise3 virtual machine
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise3-vm.yaml.j2"
+      register: exercise3vm
+      until: exercise3vm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: exercise3vm is failed or exercise3vm.failed
+
+    - name: Removing exercise3 service
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise3-service.yaml.j2"
+      register: exercise3svc
+      until: exercise3svc is succeeded
+      retries: 60
+      delay: 10
+      failed_when: exercise3svc is failed or exercise3svc.failed
+
+    - name: Removing exercise3 route
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise3-break-route.yaml.j2"
+      register: exercise3route
+      until: exercise3route is succeeded
+      retries: 60
+      delay: 10
+      failed_when: exercise3route is failed or exercise3route.failed
+
+    - name: Removing curl image pod for tests
+      kubernetes.core.k8s:
+        state: absent
+        template: "curl-pod.yaml.j2"
+      register: exercise3curlpod
+      until: exercise3curlpod is succeeded
+      retries: 60
+      delay: 10
+      failed_when: exercise3curlpod is failed or exercise3curlpod.failed
+
+    - name: Wait for the Virtual Machine to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise3"
+      register: cleanvm
+      retries: 60
+      delay: 2
+      until: cleanvm.resources | length == 0
+
+    - name: Wait for the Virtual Machine to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise3"
+      register: cleanvm
+      retries: 60
+      delay: 2
+      until: cleanvm.resources | length == 0
+
+    # - name: Get user SSH key
+    #   ansible.builtin.slurp:
+    #     src: "/home/{{ user }}/.ssh/id_rsa.pub"
+    #   register: usersshkey
+
+    # - name: Removing the idrsa secret
+    #   kubernetes.core.k8s:
+    #     state: absent
+    #     template: "exercise3-secret.yaml.j2"
+    #   register: secretidrsa
+    #   until: secretidrsa is succeeded
+    #   retries: 60
+    #   delay: 10
+    #   failed_when: secretidrsa is failed or secretidrsa.failed

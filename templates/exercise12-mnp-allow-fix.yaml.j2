@@ -1,0 +1,21 @@
+apiVersion: k8s.cni.cncf.io/v1beta1
+kind: MultiNetworkPolicy
+metadata:
+  annotations:
+    k8s.v1.cni.cncf.io/policy-for: namespace-{{ user }}/exercise12-nad
+  name: allow-80-on-exercise12
+  namespace: 'namespace-{{ user }}'
+spec:
+  podSelector:
+    matchLabels:
+      app: exercise12
+  ingress:
+  - ports:
+    - port: 80
+      protocol: TCP
+    from:
+    - podSelector:
+        matchLabels:
+          vm.kubevirt.io/name: exercise12-a
+  policyTypes:
+    - Ingress

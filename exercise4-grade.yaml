@@ -1,0 +1,34 @@
+- name: Fixing the exercise4
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Get the exercise4 VM details from OpenShift Virtualization
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        api_version: kubevirt.io/v1
+        name: exercise4
+        namespace: "namespace-{{ user }}"
+      register: vm_info
+
+    - name: Extract the core count from exercise4 VM spec
+      ansible.builtin.set_fact:
+        sockets_count: "{{ vm_info.resources[0].spec.template.spec.domain.cpu.sockets | int }}"
+
+    - name: Check if sockets_count is different from 2
+      ansible.builtin.set_fact:
+        sockets_count_valid: >-
+          {{ sockets_count | int > 2 }}
+
+    - name: Show success message if condition is true
+      ansible.builtin.debug:
+        msg: "Good job, the development team is happy that you solved the problem!"
+      when: sockets_count_valid
+
+    - name: Show failure message if condition is false
+      ansible.builtin.fail:
+        msg: "Ops, something went wrong and you have to fix the exercise!"
+      when: not sockets_count_valid

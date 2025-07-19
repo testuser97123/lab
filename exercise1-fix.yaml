@@ -1,0 +1,49 @@
+- name: Fixing the exercise1
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Clean the exercise1
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise1-break-vm.yaml.j2"
+      register: cleanvm
+      until: cleanvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: cleanvm is failed or cleanvm.failed
+
+    - name: Wait for the Virtual Machine to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercises"
+      register: cleanvm
+      retries: 60
+      delay: 2
+      until: cleanvm.resources | length == 0
+
+    - name: Fixing the exercise1
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise1-fix-vm.yaml.j2"
+      register: fixvm
+      until: fixvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: fixvm is failed or fixvm.failed
+
+    - name: Wait for VM to be running
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachineInstance
+        namespace: "namespace-{{ user }}"
+        name: "exercise1"
+      register: exercise1info
+      until: "exercise1info.resources | length > 0 and exercise1info.resources[0].status.phase == 'Running'"
+      retries: 60
+      delay: 10
+      failed_when: exercise1info.resources | length == 0

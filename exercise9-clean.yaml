@@ -1,0 +1,39 @@
+- name: Cleaning the exercise9
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Clean the exercise9 vm
+      kubernetes.core.k8s:
+        state: absent
+        template: "exercise9-vm.yaml.j2"
+      register: cleanvm
+      until: cleanvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: cleanvm is failed or cleanvm.failed
+
+    - name: Wait for the Virtual Machine to be removed
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        namespace: "namespace-{{ user }}"
+        name: "exercise9"
+      register: cleanvm
+      retries: 60
+      delay: 2
+      until: cleanvm.resources | length == 0
+
+    # - name: Removing the idrsa-exercise9 secret
+    #   kubernetes.core.k8s:
+    #     state: absent
+    #     kind: Secret
+    #     name: idrsa-exercise9
+    #     namespace: "namespace-{{ user }}"
+    #   register: idrsa
+    #   until: idrsa is succeeded
+    #   retries: 60
+    #   delay: 10
+    #   failed_when: idrsa is failed or idrsa.failed

@@ -1,0 +1,80 @@
+# ~/.bashrc: executed by bash(1) for non-login shells.
+# see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
+# for examples
+
+parse_git_branch() {
+  git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
+}
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+shopt -s checkwinsize
+
+[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+
+case "$TERM" in
+    xterm-color|*-256color) color_prompt=yes;;
+esac
+
+if [ -n "$force_color_prompt" ]; then
+    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+        color_prompt=yes
+    else
+        color_prompt=
+    fi
+fi
+
+if [ "$color_prompt" = yes ]; then
+    PS1="\[\033[38;5;112m\]\u\[\]\[\033[38;5;15m\]@\[\]\[\033[38;5;172m\]\h\[\]\[\033[38;5;15m\]:\[\]\[\033[38;5;30m\]\w/\[\]\[\]\[\033[38;5;112m\]$(parse_git_branch)\[\]\[\033[38;5;15m\] "
+else
+    PS1="\[\033[38;5;112m\]\u\[\]\[\033[38;5;15m\]@\[\]\[\033[38;5;172m\]\h\[\]\[\033[38;5;15m\]:\[\]\[\033[38;5;30m\]\w/\[\]\[\]\[\033[38;5;112m\]$(parse_git_branch)\[\]\[\033[38;5;15m\] "
+fi
+unset color_prompt force_color_prompt
+
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
+
+if [ -f ~/.bash_functions ]; then
+    . ~/.bash_functions
+fi
+
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+
+export EDITOR=vim
+
+umask 022
+source <(oc completion bash)
+
+[ -f ~/.fzf.bash ] && source ~/.fzf.bash
+
+# Undocumented feature which sets the size to "unlimited".
+# http://stackoverflow.com/questions/9457233/unlimited-bash-history
+export HISTSIZE=
+export HISTFILESIZE=
+# don't put duplicate lines or lines starting with space in the history.
+export HISTCONTROL=ignoredups:erasedups
+#export HISTTIMEFORMAT=`echo -e "\033[38;5;30m" "[%F %T]" "\033[0m"`
+
+# append to the history file, don't overwrite it
+shopt -s histappend
+
+# After each command, save and reload history
+export PROMPT_COMMAND="history -a; history -n; history -w; history -c; history -r; $PROMPT_COMMAND"
+#export PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}history -a; history -c; history -r"
+
+force_color_prompt=yes

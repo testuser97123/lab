@@ -1,0 +1,73 @@
+#!/bin/bash
+
+COLOR_GREEN="\033[0;32m"
+COLOR_RED="\033[0;31m"
+COLOR_RESET="\033[0m"
+
+# Captura o início do script
+script_start=$(date +%s)
+
+for ex in $(shuf -i 1-12)
+do
+  echo "lab break exercise$ex"
+  start=$(date +%s)
+  if lab break "exercise$ex" > /dev/null 2>&1; then
+    end=$(date +%s)
+    duration=$((end - start))
+    echo -e "${COLOR_GREEN}lab break exercise$ex executed successfully in ${duration}s${COLOR_RESET}"
+    logger -p local0.notice "lab break exercise$ex executed successfully in ${duration}s"
+  else
+    echo -e "${COLOR_RED}lab break exercise$ex failed.${COLOR_RESET}"
+    logger -p local0.notice "lab break exercise$ex failed after ${duration}s"
+    exit 1
+  fi  
+
+  echo "lab fix exercise$ex"
+  start=$(date +%s)
+  if lab fix "exercise$ex" > /dev/null 2>&1; then
+    end=$(date +%s)
+    duration=$((end - start))
+    echo -e "${COLOR_GREEN}lab fix exercise$ex executed successfully in ${duration}s${COLOR_RESET}"
+    logger -p local0.notice "lab fix exercise$ex executed successfully in ${duration}s"
+  else
+    echo -e "${COLOR_RED}lab fix exercise$ex failed.${COLOR_RESET}"
+    logger -p local0.notice "lab fix exercise$ex failed after ${duration}s"
+    exit 1
+  fi  
+
+  echo "lab grade exercise$ex"
+  start=$(date +%s)
+  if lab grade "exercise$ex" > /dev/null 2>&1; then
+    end=$(date +%s)
+    duration=$((end - start))
+    echo -e "${COLOR_GREEN}lab grade exercise$ex executed successfully in ${duration}s${COLOR_RESET}"
+    logger -p local0.notice "lab grade exercise$ex executed successfully in ${duration}s"
+  else
+    echo -e "${COLOR_RED}lab grade exercise$ex failed.${COLOR_RESET}"
+    logger -p local0.notice "lab grade exercise$ex failed after ${duration}s"
+    exit 1
+  fi  
+
+  echo "lab clean exercise$ex"
+  start=$(date +%s)
+  if lab clean "exercise$ex" > /dev/null 2>&1; then
+    end=$(date +%s)
+    duration=$((end - start))
+    echo -e "${COLOR_GREEN}lab clean exercise$ex executed successfully in ${duration}s${COLOR_RESET}"
+    logger -p local0.notice "lab clean exercise$ex executed successfully in ${duration}s"
+  else
+    echo -e "${COLOR_RED}lab clean exercise$ex failed.${COLOR_RESET}"
+    logger -p local0.notice "lab clean exercise$ex failed after ${duration}s"
+    exit 1
+  fi  
+done
+
+script_end=$(date +%s)
+
+total_duration=$((script_end - script_start))
+total_minutes=$((total_duration / 60))
+total_seconds=$((total_duration % 60))
+
+# Exibe o tempo total formatado
+echo -e "${COLOR_GREEN}Script executed successfully in ${total_minutes}m ${total_seconds}s${COLOR_RESET}"
+logger -p local0.notice "Script executed successfully in ${total_minutes}m ${total_seconds}s"

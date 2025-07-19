@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: exercise3
+  namespace: "namespace-{{ user }}"
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    vm.kubevirt.io/name: exercise3
+  sessionAffinity: None
+  type: ClusterIP

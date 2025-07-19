@@ -1,0 +1,83 @@
+- name: Preparing  exercise11
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Create SSH config file with StrictHostKeyChecking no
+      ansible.builtin.copy:
+        dest: '/home/{{ user }}/.ssh/config'
+        content: |
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+        owner: '{{ user }}'
+        group: '{{ user }}'
+        mode: '0600'
+
+    - name: Creating NAD
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise11-create-nad.yaml.j2"
+      register: createnad
+      until: createnad is succeeded
+      retries: 60
+      delay: 10
+      failed_when: createnad is failed or createnad.failed
+
+    - name: Get user SSH key
+      ansible.builtin.slurp:
+        src: "/home/{{ user }}/.ssh/id_rsa.pub"
+      register: usersshkey
+
+    - name: Create the idrsa secret
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise11-secret.yaml.j2"
+      register: secretidrsa
+      until: secretidrsa is succeeded
+      retries: 60
+      delay: 10
+      failed_when: secretidrsa is failed or secretidrsa.failed
+
+    - name: Creating VM A
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise11-create-vm-a.yaml.j2"
+      register: createvma
+      until: createvma is succeeded
+      retries: 60
+      delay: 10
+      failed_when: createvma is failed or createvma.failed
+
+    - name: Creating VM B
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise11-create-vm-b.yaml.j2"
+      register: createvmb
+      until: createvmb is succeeded
+      retries: 60
+      delay: 10
+      failed_when: createvmb is failed or createvmb.failed
+
+    - name: Wait for exercise11-a
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise11-a
+      ignore_errors: true
+      no_log: false
+      register: testssha
+      until: testssha.rc == 0
+      retries: 20
+      delay: 10
+
+    - name: Wait for exercise11-b
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise11-b
+      ignore_errors: true
+      no_log: false
+      register: testsshb
+      until: testsshb.rc == 0
+      retries: 20
+      delay: 10

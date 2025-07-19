@@ -1,0 +1,59 @@
+---
+- name: Preparing the exercise9
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Create SSH config file with StrictHostKeyChecking no
+      ansible.builtin.copy:
+        dest: '/home/{{ user }}/.ssh/config'
+        content: |
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+        owner: '{{ user }}'
+        group: '{{ user }}'
+        mode: '0600'
+
+    - name: Read the content of the file
+      ansible.builtin.slurp:
+        src: '/home/{{ user }}/.ssh/id_rsa.pub'
+      register: idrsapub
+
+    - name: Store base64 encoded content in a variable
+      ansible.builtin.set_fact:
+        encodedsshpubkey: "{{ idrsapub.content }}"
+
+    - name: Create the idrsa secret
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise9-secret.yaml.j2"
+      register: secretidrsa
+      until: secretidrsa is succeeded
+      retries: 60
+      delay: 10
+      failed_when: secretidrsa is failed or secretidrsa.failed
+
+    - name: Creating the exercise9 virtual machine
+      kubernetes.core.k8s:
+        state: present
+        template: "exercise9-vm.yaml.j2"
+      register: breakvm
+      until: breakvm is succeeded
+      retries: 60
+      delay: 10
+      failed_when: breakvm is failed or breakvm.failed
+
+    - name: Wait for exercise9
+      ansible.builtin.command:
+        cmd: virtctl ssh -i /home/{{ user }}/.ssh/id_rsa  lab-user@exercise9
+      ignore_errors: true
+      no_log: false
+      register: testssh
+      until:
+        - testssh.rc == 0
+      retries: 20
+      delay: 10

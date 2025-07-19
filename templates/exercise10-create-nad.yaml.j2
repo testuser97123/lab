@@ -1,0 +1,7 @@
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: exercise10-nad
+  namespace: namespace-{{ user }}
+spec:
+  config: '{"name":"exercise10-nad","type":"bridge","cniVersion":"0.3.1","bridge":"br10","macspoofchk":true,"ipam":{},"preserveDefaultVlan":false}'

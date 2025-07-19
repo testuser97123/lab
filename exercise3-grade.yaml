@@ -1,0 +1,38 @@
+- name: Grading the exercise3
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Getting URL from route
+      kubernetes.core.k8s_info:
+        kind: Route
+        namespace: "namespace-{{ user }}"
+        name: exercise3
+      register: routefacts
+
+    - name: Access the URL and check for the response
+      ansible.builtin.uri:
+        url: "https://{{ routefacts.resources[0].spec.host }}"
+        method: GET
+        return_content: true
+      register: urlcontent
+      no_log: false
+      ignore_errors: true
+
+    - name: Check if response contains the expected content
+      ansible.builtin.set_fact:
+        urlcontent_valid: >-
+          {{ 'Hello from exercise3, you are doing a great job!' in urlcontent.content }}
+
+    - name: Show success message if condition is true
+      ansible.builtin.debug:
+        msg: "Good job, it's working as expected!"
+      when: urlcontent_valid
+
+    - name: Show failure message if condition is false
+      ansible.builtin.fail:
+        msg: "Ops, something went wrong and you have to fix the exercise!"
+      when: not urlcontent_valid

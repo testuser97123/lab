@@ -1,0 +1,36 @@
+#!/bin/bash
+
+num_users={{ num_users }}
+
+if [[ -z "$num_users" || "$num_users" -le 0 ]]; then
+  echo "Usage: $0 <number of users>"
+  exit 1
+fi
+
+output_file="/home/lab-user/perf-test-tmux-session.yaml"
+
+cat <<EOF > "$output_file"
+session_name: PERF
+windows:
+EOF
+
+users_per_window=4
+total_windows=$(( (num_users + users_per_window - 1) / users_per_window ))
+
+user_count=1
+for window in $(seq 1 "$total_windows"); do
+  echo "  - window_name: performancetest-$window" >> "$output_file"
+  echo "    layout: tiled" >> "$output_file"
+  echo "    options_after:" >> "$output_file"
+  echo "      synchronize-panes: true" >> "$output_file"
+  echo "    panes:" >> "$output_file"
+
+  for pane in $(seq 1 "$users_per_window"); do
+    if [[ "$user_count" -le "$num_users" ]]; then
+      echo "    - shell_command:" >> "$output_file"
+      echo "      - sudo su - user$user_count" >> "$output_file"
+      echo "      - oc login --insecure-skip-tls-verify=true -u user$user_count APIURL -p " >> "$output_file"
+      ((user_count++))
+    fi
+  done
+done

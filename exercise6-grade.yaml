@@ -1,0 +1,36 @@
+- name: Fixing the exercise4
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    user: "{{ lookup('env', 'USER') }}"
+
+  tasks:
+    - name: Get the exercise6 VM details from OpenShift Virtualization
+      kubernetes.core.k8s_info:
+        kind: VirtualMachine
+        api_version: kubevirt.io/v1
+        name: exercise6
+        namespace: "namespace-{{ user }}"
+      register: vm_info
+
+    - name: Get the cloudinitdisk details
+      ansible.builtin.set_fact:
+        cloudinitdisk: " {{
+          vm_info.resources[0].spec.template.spec.domain.devices.disks[1]
+        }}"
+
+    - name: Check if cloudinitdisk has no 'readonly' attribute
+      ansible.builtin.set_fact:
+        cloudinitdisk_valid: >-
+          {{ 'readonly' not in cloudinitdisk }}
+
+    - name: Show success message if 'readonly' is not present
+      ansible.builtin.debug:
+        msg: "Yeah Yeah Yeah, the virtual machine can be migrated to another node now!"
+      when: cloudinitdisk_valid
+
+    - name: Show failure message if 'readonly' is present
+      ansible.builtin.fail:
+        msg: "Ops, something went wrong and you have to fix the exercise!"
+      when: not cloudinitdisk_valid
